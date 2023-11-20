@@ -25,7 +25,10 @@ class InvalidSyntaxError(Error):# error created when error in parsing
     def __init__(self,pos_start,pos_end,details):
         super().__init__(pos_start,pos_end,'your syntax lacks the drip bruv \n angy emoji :< ', details)
     
- 
+class RTError(Error):# error created when error in parsing
+    def __init__(self,pos_start,pos_end,details):
+        super().__init__(pos_start,pos_end,'RunTime Error', details)
+    
 ######################################
 #Position
 ######################################
@@ -148,6 +151,8 @@ class Lexer:
 class NumberNodes:
     def __init__(self,tok):
         self.tok= tok
+        self.pos_start = tok.pos_start
+        self.pos_end = tok.pos_end
     def __repr__(self):
         return f'{self.tok}'
 class BinOpNode:
@@ -155,12 +160,17 @@ class BinOpNode:
         self.leftNode=leftNode
         self.rightNode=rightNode
         self.op_tok=op_tok
+
+        self.pos_start = self.leftNode.pos_start
+        self.pos_end = self.rightNode.pos_end
     def __repr__(self):
         return f'({self.leftNode},{self.op_tok},{self.rightNode})'
 class UnaryOpNode:
     def __init__(self,op_tok,node):
         self.op_tok=op_tok
         self.node=node
+        self.pos_start = self.op_tok.pos_start
+        self.pos_end = node.pos_end
     def __repr__(self):
         return f'({self.op_tok},{self.node})'
 
@@ -244,6 +254,75 @@ class Parser:
             left = BinOpNode(left,op_tok,right)
         return res.success(left)
 ######################################
+#RunTime Result 
+######################################
+class RTResult:
+    def __init__(self) :
+        self.value = None
+        self.error = None
+    def register(self,res):
+        if res.error: self.error = res.error 
+######################################
+#Values
+######################################
+class Number:
+    def __init__(self,value):
+        self.value = value
+        self.set_pos()
+
+    def set_pos(self,pos_start=None,pos_end=None):
+        self.pos_start = pos_start
+        self.pos_end = pos_end
+        return self
+    def added_to(self,other):
+        if isinstance(other,Number):
+            return Number(self.value+other.value)
+    def subbed_by(self,other):
+        if isinstance(other,Number):
+            return Number(self.value-other.value)
+    def multed_by(self,other):
+        if isinstance(other,Number):
+            return Number(self.value*other.value)
+    def divided_by(self,other):
+        if isinstance(other,Number):
+            return Number(self.value/other.value)
+    def __repr__(self):
+        return str(self.value)
+######################################
+#Interpreter
+######################################
+class Interpreter:
+    def visit(self,node):
+        method_name = f'visit_{type(node).__name__}'
+        method = getattr(self,method_name,self.no_visit_method)
+        return (method(node))
+    
+    def no_visit_method(self,node):
+        raise Exception(f'No Visit_{type(node).__name__} Method Defined')
+    
+    def visit_NumberNodes(self,node):
+        return Number(node.tok.value).set_pos(node.pos_start,node.pos_end)
+
+    def visit_BinOpNode(self,node):
+        left = self.visit(node.leftNode)
+        right = self.visit(node.rightNode)
+        
+        if node.op_tok.type == TT_PLUS:
+            result = left.added_to(right)
+        elif node.op_tok.type == TT_MINUS:
+            result = left.subbed_by(right)
+        elif node.op_tok.type == TT_MUL:
+            result = left.multed_by(right)
+        elif node.op_tok.type == TT_DIV:
+            result = left.divided_by(right)
+        return result.set_pos(node.pos_start,node.pos_end)
+    
+    def visit_UnaryOpNode(self,node):
+        number = self.visit(node.node)
+        if node.op_tok.type == TT_MINUS:
+            number = number.multed_by(Number(-1))
+        return number.set_pos(node.pos_start,node.pos_end)
+######################################
 #RUN
 ######################################
 
@@ -256,4 +335,8 @@ def run(fn,text):
     # generate absract syntax tree 
     parser = Parser(tokens)
     ast = parser.parse() 
-    return ast.node,ast.error
+    if ast.error: return None, ast.error
+
+    interpreter = Interpreter()
+    result = interpreter.visit(ast.node)
+    return result, None
